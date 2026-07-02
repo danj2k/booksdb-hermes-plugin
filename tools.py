@@ -1,18 +1,36 @@
 """
 Booksdb tool handlers.
 
-Each function receives (params: dict, ctx) and returns a dict with a
-"text" key (the formatted result the LLM sees).  The helper _db()
-resolves the database path from the BOOKSDB_DB_PATH environment variable
-set via plugin.yaml.
+Every public function in this module:
+  • Accepts (args: dict, **kwargs)
+  • Returns a JSON string (never raises)
+  • Uses a module-level SQLite connection (shared across calls)
+
+The database path is read from the BOOKSDB_DB_PATH environment variable,
+which is required by plugin.yaml.
 """
 
+import json
 import logging
 import os
 import sqlite3
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Response helpers (match goodreads plugin convention)
+# ---------------------------------------------------------------------------
+
+def _ok(data) -> str:
+    """Return a JSON-encoded success payload."""
+    return json.dumps(data, default=str)
+
+
+def _err(msg: str) -> str:
+    """Return a JSON-encoded error payload."""
+    return json.dumps({"error": msg})
+
 
 # ---------------------------------------------------------------------------
 # Database connection
@@ -123,13 +141,13 @@ def _join_identifiers(book_id: int) -> str:
 # ---------------------------------------------------------------------------
 
 
-def booksdb_search(params: dict, ctx) -> dict:
+def booksdb_search(args: dict, **kwargs) -> str:
     """Full-text search via FTS5."""
-    query = params.get("query", "").strip()
+    query = args.get("query", "").strip()
     if not query:
-        return {"text": "Error: query is required."}
-    limit = _clamp(params.get("limit"), 20, 1, 50)
-    offset = _clamp(params.get("offset"), 0, 0, 10000)
+        return _ok({"text": "Error: query is required."})
+    limit = _clamp(args.get("limit"), 20, 1, 50)
+    offset = _clamp(args.get("offset"), 0, 0, 10000)
 
     db = _db()
     try:
@@ -148,21 +166,21 @@ def booksdb_search(params: dict, ctx) -> dict:
             (query, limit, offset),
         ).fetchall()
     except sqlite3.OperationalError as exc:
-        return {"text": f"FTS error: {exc}"}
+        return _ok({"text": f"FTS error: {exc}"})
 
     if not rows:
-        return {"text": f"No books found matching \'{query}\'."}
+        return _ok({"text": f"No books found matching '{query}'."})
 
     lines = [f"Found {len(rows)} result(s) for \'{query}\':\n"]
     for row in rows:
         lines.append(_book_summary(row))
-    return {"text": "\n".join(lines)}
+    return _ok({"text": "\n".join(lines)})
 
 
-def booksdb_get_book_details(params: dict, ctx) -> dict:
+def booksdb_get_book_details(args: dict, **kwargs) -> str:
     """Full details for a single book."""
-    book_id = params.get("book_id")
-    title = params.get("title", "").strip()
+    book_id = args.get("book_id")
+    title = args.get("title", "").strip()
 
     db = _db()
     if book_id:
@@ -178,10 +196,10 @@ def booksdb_get_book_details(params: dict, ctx) -> dict:
                 (f"%{title}%",),
             ).fetchone()
     else:
-        return {"text": "Error: provide book_id or title."}
+        return _ok({"text": "Error: provide book_id or title."})
 
     if not row:
-        return {"text": "Book not found."}
+        return _ok({"text": "Book not found."})
 
     bid = row["id"]
     parts = [
@@ -216,16 +234,16 @@ def booksdb_get_book_details(params: dict, ctx) -> dict:
         if len(desc) > 1000:
             desc = desc[:1000] + "..."
         parts.append(f"\nDescription: {desc}")
-    return {"text": "\n".join(parts)}
+    return _ok({"text": "\n".join(parts)})
 
 
-def booksdb_get_books_by_author(params: dict, ctx) -> dict:
+def booksdb_get_books_by_author(args: dict, **kwargs) -> str:
     """Books by author (partial, case-insensitive)."""
-    author = params.get("author", "").strip()
+    author = args.get("author", "").strip()
     if not author:
-        return {"text": "Error: author is required."}
-    limit = _clamp(params.get("limit"), 20, 1, 50)
-    offset = _clamp(params.get("offset"), 0, 0, 10000)
+        return _ok({"text": "Error: author is required."})
+    limit = _clamp(args.get("limit"), 20, 1, 50)
+    offset = _clamp(args.get("offset"), 0, 0, 10000)
 
     db = _db()
     rows = db.execute(
@@ -242,21 +260,21 @@ def booksdb_get_books_by_author(params: dict, ctx) -> dict:
     ).fetchall()
 
     if not rows:
-        return {"text": f"No books found for author \'{author}\'."}
+        return _ok({"text": f"No books found for author '{author}'."})
 
     lines = [f"Books by {author} ({len(rows)} shown):\n"]
     for row in rows:
         lines.append(_book_summary(row))
-    return {"text": "\n".join(lines)}
+    return _ok({"text": "\n".join(lines)})
 
 
-def booksdb_get_books_by_series(params: dict, ctx) -> dict:
+def booksdb_get_books_by_series(args: dict, **kwargs) -> str:
     """Books in a series, ordered by position."""
-    series = params.get("series", "").strip()
+    series = args.get("series", "").strip()
     if not series:
-        return {"text": "Error: series is required."}
-    limit = _clamp(params.get("limit"), 20, 1, 50)
-    offset = _clamp(params.get("offset"), 0, 0, 10000)
+        return _ok({"text": "Error: series is required."})
+    limit = _clamp(args.get("limit"), 20, 1, 50)
+    offset = _clamp(args.get("offset"), 0, 0, 10000)
 
     db = _db()
     rows = db.execute(
@@ -274,7 +292,7 @@ def booksdb_get_books_by_series(params: dict, ctx) -> dict:
     ).fetchall()
 
     if not rows:
-        return {"text": f"No books found in series '{series}'."}
+        return _ok({"text": f"No books found in series '{series}'."})
 
     series_name = rows[0]["series"]
     lines = [f"Books in series '{series_name}' ({len(rows)} shown):\n"]
@@ -282,16 +300,16 @@ def booksdb_get_books_by_series(params: dict, ctx) -> dict:
         pos = row["series_position"]
         pos_str = f"  #{int(pos)}" if pos else "  (no position)"
         lines.append(f"{pos_str} {row['title']} - {row['author_name']}")
-    return {"text": "\n".join(lines)}
+    return _ok({"text": "\n".join(lines)})
 
 
-def booksdb_get_books_by_genre(params: dict, ctx) -> dict:
+def booksdb_get_books_by_genre(args: dict, **kwargs) -> str:
     """Books by genre."""
-    genre = params.get("genre", "").strip()
+    genre = args.get("genre", "").strip()
     if not genre:
-        return {"text": "Error: genre is required."}
-    limit = _clamp(params.get("limit"), 20, 1, 50)
-    offset = _clamp(params.get("offset"), 0, 0, 10000)
+        return _ok({"text": "Error: genre is required."})
+    limit = _clamp(args.get("limit"), 20, 1, 50)
+    offset = _clamp(args.get("offset"), 0, 0, 10000)
 
     db = _db()
     rows = db.execute(
@@ -311,21 +329,21 @@ def booksdb_get_books_by_genre(params: dict, ctx) -> dict:
     ).fetchall()
 
     if not rows:
-        return {"text": f"No books found in genre \'{genre}\'."}
+        return _ok({"text": f"No books found in genre \'{genre}\'."})
 
     lines = [f"Books in genre \'{genre}\' ({len(rows)} shown):\n"]
     for row in rows:
         lines.append(_book_summary(row))
-    return {"text": "\n".join(lines)}
+    return _ok({"text": "\n".join(lines)})
 
 
-def booksdb_get_books_by_publisher(params: dict, ctx) -> dict:
+def booksdb_get_books_by_publisher(args: dict, **kwargs) -> str:
     """Books by publisher."""
-    publisher = params.get("publisher", "").strip()
+    publisher = args.get("publisher", "").strip()
     if not publisher:
-        return {"text": "Error: publisher is required."}
-    limit = _clamp(params.get("limit"), 20, 1, 50)
-    offset = _clamp(params.get("offset"), 0, 0, 10000)
+        return _ok({"text": "Error: publisher is required."})
+    limit = _clamp(args.get("limit"), 20, 1, 50)
+    offset = _clamp(args.get("offset"), 0, 0, 10000)
 
     db = _db()
     rows = db.execute(
@@ -343,20 +361,20 @@ def booksdb_get_books_by_publisher(params: dict, ctx) -> dict:
     ).fetchall()
 
     if not rows:
-        return {"text": f"No books found from publisher \'{publisher}\'."}
+        return _ok({"text": f"No books found from publisher \'{publisher}\'."})
 
     lines = [f"Books from {publisher} ({len(rows)} shown):\n"]
     for row in rows:
         lines.append(_book_summary(row))
-    return {"text": "\n".join(lines)}
+    return _ok({"text": "\n".join(lines)})
 
 
-def booksdb_lookup_book_by_identifier(params: dict, ctx) -> dict:
+def booksdb_lookup_book_by_identifier(args: dict, **kwargs) -> str:
     """Look up a book by identifier type and value."""
-    id_type = params.get("identifier_type", "").strip()
-    id_value = params.get("identifier_value", "").strip()
+    id_type = args.get("identifier_type", "").strip()
+    id_value = args.get("identifier_value", "").strip()
     if not id_type or not id_value:
-        return {"text": "Error: both identifier_type and identifier_value are required."}
+        return _ok({"text": "Error: both identifier_type and identifier_value are required."})
 
     db = _db()
     row = db.execute(
@@ -366,13 +384,13 @@ def booksdb_lookup_book_by_identifier(params: dict, ctx) -> dict:
     ).fetchone()
 
     if not row:
-        return {"text": f"No book found with {id_type}={id_value}."}
+        return _ok({"text": f"No book found with {id_type}={id_value}."})
 
     # Reuse book details handler
-    return booksdb_get_book_details({"book_id": row["book_id"]}, ctx)
+    return booksdb_get_book_details({"book_id": row["book_id"]})
 
 
-def booksdb_get_database_stats(params: dict, ctx) -> dict:
+def booksdb_get_database_stats(args: dict, **kwargs) -> str:
     """High-level database statistics."""
     db = _db()
 
@@ -408,12 +426,12 @@ def booksdb_get_database_stats(params: dict, ctx) -> dict:
     ]
     for s in source_rows:
         lines.append(f"  {s['name']}: {s['cnt']} books enriched")
-    return {"text": "\n".join(lines)}
+    return _ok({"text": "\n".join(lines)})
 
 
-def booksdb_get_genre_stats(params: dict, ctx) -> dict:
+def booksdb_get_genre_stats(args: dict, **kwargs) -> str:
     """Genre breakdown with counts."""
-    limit = _clamp(params.get("limit"), 20, 1, 50)
+    limit = _clamp(args.get("limit"), 20, 1, 50)
 
     db = _db()
     rows = db.execute(
@@ -429,18 +447,18 @@ def booksdb_get_genre_stats(params: dict, ctx) -> dict:
     ).fetchall()
 
     if not rows:
-        return {"text": "No genre data found."}
+        return _ok({"text": "No genre data found."})
 
     lines = [f"=== Genre Statistics (top {limit}) ==="]
     for r in rows:
         latest = r["latest"][:4] if r["latest"] else "unknown"
         lines.append(f"  {r['name']}: {r['cnt']} books (latest: {latest})")
-    return {"text": "\n".join(lines)}
+    return _ok({"text": "\n".join(lines)})
 
 
-def booksdb_get_publisher_stats(params: dict, ctx) -> dict:
+def booksdb_get_publisher_stats(args: dict, **kwargs) -> str:
     """Publisher breakdown with counts."""
-    limit = _clamp(params.get("limit"), 20, 1, 50)
+    limit = _clamp(args.get("limit"), 20, 1, 50)
 
     db = _db()
     rows = db.execute(
@@ -454,18 +472,18 @@ def booksdb_get_publisher_stats(params: dict, ctx) -> dict:
     ).fetchall()
 
     if not rows:
-        return {"text": "No publisher data found."}
+        return _ok({"text": "No publisher data found."})
 
     lines = [f"=== Publisher Statistics (top {limit}) ==="]
     for r in rows:
         latest = r["latest"][:4] if r["latest"] else "unknown"
         lines.append(f"  {r['publisher']}: {r['cnt']} books (latest: {latest})")
-    return {"text": "\n".join(lines)}
+    return _ok({"text": "\n".join(lines)})
 
 
-def booksdb_get_author_stats(params: dict, ctx) -> dict:
+def booksdb_get_author_stats(args: dict, **kwargs) -> str:
     """Author statistics by book count."""
-    limit = _clamp(params.get("limit"), 20, 1, 50)
+    limit = _clamp(args.get("limit"), 20, 1, 50)
 
     db = _db()
     rows = db.execute(
@@ -484,7 +502,7 @@ def booksdb_get_author_stats(params: dict, ctx) -> dict:
     ).fetchall()
 
     if not rows:
-        return {"text": "No author data found."}
+        return _ok({"text": "No author data found."})
 
     lines = [f"=== Author Statistics (top {limit}) ==="]
     for r in rows:
@@ -493,10 +511,10 @@ def booksdb_get_author_stats(params: dict, ctx) -> dict:
         if len(r["genres"] or "") > 60:
             genres += "..."
         lines.append(f"  {r['name']}: {r['cnt']} books (genres: {genres}, latest: {latest})")
-    return {"text": "\n".join(lines)}
+    return _ok({"text": "\n".join(lines)})
 
 
-def booksdb_list_sources(params: dict, ctx) -> dict:
+def booksdb_list_sources(args: dict, **kwargs) -> str:
     """List data sources."""
     db = _db()
     rows = db.execute(
@@ -508,9 +526,9 @@ def booksdb_list_sources(params: dict, ctx) -> dict:
     ).fetchall()
 
     if not rows:
-        return {"text": "No sources found."}
+        return _ok({"text": "No sources found."})
 
     lines = ["=== Data Sources ==="]
     for r in rows:
         lines.append(f"  {r['name']} ({r['source_type']}): {r['cnt']} books enriched")
-    return {"text": "\n".join(lines)}
+    return _ok({"text": "\n".join(lines)})
