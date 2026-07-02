@@ -28,12 +28,17 @@ overhead of reconnecting on every tool call.  The connection is
 process-scoped, which is safe because Hermes runs each tool call
 in the same Python process.
 
-## Text returns, not JSON
+## JSON string returns
 
-Each handler returns `{"text": "formatted string"}` rather than
-structured JSON.  This matches the Goodreads convention and lets the
-LLM consume results directly without additional parsing.  For
-structured data (stats), the text is line-oriented for easy reading.
+Each handler accepts `(args: dict, **kwargs)` and returns a JSON-encoded
+string via the `_ok()` / `_err()` helpers.  The `**kwargs` parameter is
+required by the Hermes framework, which passes additional keyword arguments
+(such as `task_id`, `session_id`, `user_task`) at call time.  Handlers
+that omit `**kwargs` raise `TypeError` on invocation.
+
+This matches the Goodreads plugin convention and lets the runtime
+deserialize results uniformly.  For structured data (stats), the text
+is line-oriented for easy reading.
 
 ## Identifier lookup delegates to book details
 

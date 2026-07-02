@@ -24,7 +24,7 @@ bounds these values.
 
 ## Error handling
 
-- Missing required parameters → immediate `{"text": "Error: …"}` return.
+- Missing required parameters → immediate `_ok({"text": "Error: …"})` JSON string return.
 - FTS syntax errors → caught via `sqlite3.OperationalError` and reported
   as a human-readable message.
 - Empty result sets → friendly "no books found" message.
