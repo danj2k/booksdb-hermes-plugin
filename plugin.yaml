@@ -1,0 +1,27 @@
+name: booksdb
+version: 1.0.0
+description: >
+  Query the book metadata database scraped from multiple publisher and catalogue
+  sources.  Provides full-text search (FTS5), browse-by-author/genre/series/
+  publisher, identifier lookups (ISBN, ASIN, Goodreads ID, etc.), and database
+  statistics — without needing to write SQL.
+author: Hermes Plugin
+
+requires_env:
+  - name: BOOKSDB_DB_PATH
+    description: "Absolute path to the book metadata SQLite database file (e.g. /path/to/book_metadata.db)"
+    secret: false
+
+provides_tools:
+  - booksdb_search
+  - booksdb_get_book_details
+  - booksdb_get_books_by_author
+  - booksdb_get_books_by_series
+  - booksdb_get_books_by_genre
+  - booksdb_get_books_by_publisher
+  - booksdb_lookup_book_by_identifier
+  - booksdb_get_database_stats
+  - booksdb_get_genre_stats
+  - booksdb_get_publisher_stats
+  - booksdb_get_author_stats
+  - booksdb_list_sources
