@@ -238,135 +238,238 @@ def booksdb_get_book_details(args: dict, **kwargs) -> str:
 
 
 def booksdb_get_books_by_author(args: dict, **kwargs) -> str:
-    """Books by author (partial, case-insensitive)."""
-    author = args.get("author", "").strip()
-    if not author:
-        return _ok({"text": "Error: author is required."})
+    """List books by a given author (partial, case-insensitive name match)."""
+    db = _db()
     limit = _clamp(args.get("limit"), 20, 1, 50)
     offset = _clamp(args.get("offset"), 0, 0, 10000)
+    count_only = bool(args.get("count_only", False))
+    author = args.get("author", "").strip()
+    first_only = bool(args.get("first_only", False))
 
-    db = _db()
-    rows = db.execute(
-        "SELECT b.id, b.title, b.series, b.series_position, "
-        "       b.publisher, b.published_date, b.page_count, "
-        "       a.name AS author_name "
-        "FROM books b "
-        "JOIN book_authors ba ON ba.book_id = b.id "
-        "JOIN authors a ON a.id = ba.author_id "
-        "WHERE a.name LIKE ? COLLATE NOCASE "
-        "ORDER BY b.published_date DESC NULLS LAST, b.title "
-        "LIMIT ? OFFSET ?",
-        (f"%{author}%", limit, offset),
-    ).fetchall()
+    if not author:
+        return _ok({"text": "Error: author is required."})
+
+    where = "a.name LIKE ? COLLATE NOCASE"
+    params: list = [f"%{author}%"]
+
+    if first_only:
+        where += " AND b.series_position = 1"
+
+    # Count-only mode
+    if count_only:
+        count_sql = f"""
+            SELECT COUNT(DISTINCT b.id)
+            FROM books b
+            JOIN book_authors ba ON ba.book_id = b.id
+            JOIN authors a ON a.id = ba.author_id
+            WHERE {where}
+        """
+        count = db.execute(count_sql, params).fetchone()[0]
+        return _ok({"author": author, "count": count})
+
+    sql = f"""
+        SELECT b.id, b.title, b.series, b.series_position,
+               b.publisher, b.published_date, b.page_count,
+               a.name AS author_name
+        FROM books b
+        JOIN book_authors ba ON ba.book_id = b.id
+        JOIN authors a ON a.id = ba.author_id
+        WHERE {where}
+        ORDER BY b.published_date DESC NULLS LAST, b.title
+        LIMIT ? OFFSET ?
+    """
+    params += [limit, offset]
+    rows = db.execute(sql, params).fetchall()
 
     if not rows:
         return _ok({"text": f"No books found for author '{author}'."})
 
-    lines = [f"Books by {author} ({len(rows)} shown):\n"]
+    books = []
     for row in rows:
-        lines.append(_book_summary(row))
-    return _ok({"text": "\n".join(lines)})
+        books.append({
+            "id": row["id"], "title": row["title"],
+            "author": row["author_name"],
+            "series": row["series"], "series_position": row["series_position"],
+            "publisher": row["publisher"],
+            "publication_date": row["published_date"],
+            "page_count": row["page_count"],
+        })
+    return _ok({"author": author, "books": books, "count": len(books), "offset": offset})
 
 
 def booksdb_get_books_by_series(args: dict, **kwargs) -> str:
-    """Books in a series, ordered by position."""
-    series = args.get("series", "").strip()
-    if not series:
-        return _ok({"text": "Error: series is required."})
+    """List all books in a named series, ordered by series position."""
+    db = _db()
     limit = _clamp(args.get("limit"), 20, 1, 50)
     offset = _clamp(args.get("offset"), 0, 0, 10000)
+    count_only = bool(args.get("count_only", False))
+    series = args.get("series", "").strip()
+    first_only = bool(args.get("first_only", False))
 
-    db = _db()
-    rows = db.execute(
-        "SELECT b.id, b.title, b.series, b.series_position, "
-        "       b.publisher, b.published_date, b.page_count, "
-        "       (SELECT a.name FROM book_authors ba "
-        "        JOIN authors a ON a.id = ba.author_id "
-        "        WHERE ba.book_id = b.id "
-        "        ORDER BY ba.rowid LIMIT 1) AS author_name "
-        "FROM books b "
-        "WHERE b.series LIKE ? COLLATE NOCASE "
-        "ORDER BY b.series_position ASC NULLS LAST, b.title "
-        "LIMIT ? OFFSET ?",
-        (f"%{series}%", limit, offset),
-    ).fetchall()
+    if not series:
+        return _ok({"text": "Error: series is required."})
+
+    where = "b.series LIKE ? COLLATE NOCASE"
+    params: list = [f"%{series}%"]
+
+    if first_only:
+        where += " AND b.series_position = 1"
+
+    # Count-only mode
+    if count_only:
+        count_sql = f"SELECT COUNT(DISTINCT b.id) FROM books b WHERE {where}"
+        count = db.execute(count_sql, params).fetchone()[0]
+        return _ok({"series": series, "count": count})
+
+    sql = f"""
+        SELECT b.id, b.title, b.series, b.series_position,
+               b.publisher, b.published_date, b.page_count,
+               (SELECT a.name FROM book_authors ba
+                JOIN authors a ON a.id = ba.author_id
+                WHERE ba.book_id = b.id
+                ORDER BY ba.rowid LIMIT 1) AS author_name
+        FROM books b
+        WHERE {where}
+        ORDER BY b.series_position ASC NULLS LAST, b.title
+        LIMIT ? OFFSET ?
+    """
+    params += [limit, offset]
+    rows = db.execute(sql, params).fetchall()
 
     if not rows:
         return _ok({"text": f"No books found in series '{series}'."})
 
     series_name = rows[0]["series"]
-    lines = [f"Books in series '{series_name}' ({len(rows)} shown):\n"]
+    books = []
     for row in rows:
-        pos = row["series_position"]
-        pos_str = f"  #{int(pos)}" if pos else "  (no position)"
-        lines.append(f"{pos_str} {row['title']} - {row['author_name']}")
-    return _ok({"text": "\n".join(lines)})
+        books.append({
+            "id": row["id"], "title": row["title"],
+            "author": row["author_name"],
+            "series": row["series"], "series_position": row["series_position"],
+            "publisher": row["publisher"],
+            "publication_date": row["published_date"],
+            "page_count": row["page_count"],
+        })
+    return _ok({"series": series_name, "books": books, "count": len(books), "offset": offset})
 
 
 def booksdb_get_books_by_genre(args: dict, **kwargs) -> str:
-    """Books by genre."""
-    genre = args.get("genre", "").strip()
-    if not genre:
-        return _ok({"text": "Error: genre is required."})
+    """List books matching one or more genres (OR logic, case-insensitive partial match)."""
+    db = _db()
     limit = _clamp(args.get("limit"), 20, 1, 50)
     offset = _clamp(args.get("offset"), 0, 0, 10000)
+    count_only = bool(args.get("count_only", False))
+    first_only = bool(args.get("first_only", False))
 
-    db = _db()
-    rows = db.execute(
-        "SELECT b.id, b.title, b.series, b.series_position, "
-        "       b.publisher, b.published_date, b.page_count, "
-        "       (SELECT a.name FROM book_authors ba "
-        "        JOIN authors a ON a.id = ba.author_id "
-        "        WHERE ba.book_id = b.id "
-        "        ORDER BY ba.rowid LIMIT 1) AS author_name "
-        "FROM books b "
-        "JOIN book_genres bg ON bg.book_id = b.id "
-        "JOIN genres g ON g.id = bg.genre_id "
-        "WHERE g.name LIKE ? COLLATE NOCASE "
-        "ORDER BY b.published_date DESC NULLS LAST, b.title "
-        "LIMIT ? OFFSET ?",
-        (f"%{genre}%", limit, offset),
-    ).fetchall()
+    # Support both single "genre" and multi-genre "genres" array (OR logic)
+    genres_raw = args.get("genres") or ([args["genre"]] if args.get("genre") else [])
+    if not genres_raw:
+        return _ok({"text": "Error: genre is required (e.g. 'fantasy', 'litrpg')."})
+
+    placeholders = " OR ".join(["g.name LIKE ? COLLATE NOCASE"] * len(genres_raw))
+    params: list = [f"%{g}%" for g in genres_raw]
+
+    if first_only:
+        placeholders += " AND b.series_position = 1"
+
+    # Count-only mode
+    if count_only:
+        count_sql = f"""
+            SELECT COUNT(DISTINCT b.id)
+            FROM books b
+            JOIN book_genres bg ON bg.book_id = b.id
+            JOIN genres g ON g.id = bg.genre_id
+            WHERE {placeholders}
+        """
+        count = db.execute(count_sql, params).fetchone()[0]
+        return _ok({"genre": genres_raw, "count": count})
+
+    sql = f"""
+        SELECT b.id, b.title, b.series, b.series_position,
+               b.publisher, b.published_date, b.page_count,
+               (SELECT a.name FROM book_authors ba
+                JOIN authors a ON a.id = ba.author_id
+                WHERE ba.book_id = b.id
+                ORDER BY ba.rowid LIMIT 1) AS author_name
+        FROM books b
+        JOIN book_genres bg ON bg.book_id = b.id
+        JOIN genres g ON g.id = bg.genre_id
+        WHERE ({placeholders})
+        ORDER BY b.published_date DESC NULLS LAST, b.title
+        LIMIT ? OFFSET ?
+    """
+    params += [limit, offset]
+    rows = db.execute(sql, params).fetchall()
 
     if not rows:
-        return _ok({"text": f"No books found in genre \'{genre}\'."})
+        return _ok({"text": f"No books found in genre(s): {genres_raw}."})
 
-    lines = [f"Books in genre \'{genre}\' ({len(rows)} shown):\n"]
+    books = []
     for row in rows:
-        lines.append(_book_summary(row))
-    return _ok({"text": "\n".join(lines)})
+        books.append({
+            "id": row["id"], "title": row["title"],
+            "author": row["author_name"],
+            "series": row["series"], "series_position": row["series_position"],
+            "publisher": row["publisher"],
+            "publication_date": row["published_date"],
+            "page_count": row["page_count"],
+        })
+    return _ok({"genre": genres_raw, "books": books, "count": len(books), "offset": offset})
 
 
 def booksdb_get_books_by_publisher(args: dict, **kwargs) -> str:
-    """Books by publisher."""
-    publisher = args.get("publisher", "").strip()
-    if not publisher:
-        return _ok({"text": "Error: publisher is required."})
+    """List books from a given publisher."""
+    db = _db()
     limit = _clamp(args.get("limit"), 20, 1, 50)
     offset = _clamp(args.get("offset"), 0, 0, 10000)
+    count_only = bool(args.get("count_only", False))
+    publisher = args.get("publisher", "").strip()
+    first_only = bool(args.get("first_only", False))
 
-    db = _db()
-    rows = db.execute(
-        "SELECT b.id, b.title, b.series, b.series_position, "
-        "       b.publisher, b.published_date, b.page_count, "
-        "       (SELECT a.name FROM book_authors ba "
-        "        JOIN authors a ON a.id = ba.author_id "
-        "        WHERE ba.book_id = b.id "
-        "        ORDER BY ba.rowid LIMIT 1) AS author_name "
-        "FROM books b "
-        "WHERE b.publisher LIKE ? COLLATE NOCASE "
-        "ORDER BY b.published_date DESC NULLS LAST, b.title "
-        "LIMIT ? OFFSET ?",
-        (f"%{publisher}%", limit, offset),
-    ).fetchall()
+    if not publisher:
+        return _ok({"text": "Error: publisher is required."})
+
+    where = "b.publisher LIKE ? COLLATE NOCASE"
+    params: list = [f"%{publisher}%"]
+
+    if first_only:
+        where += " AND b.series_position = 1"
+
+    # Count-only mode
+    if count_only:
+        count_sql = f"SELECT COUNT(DISTINCT b.id) FROM books b WHERE {where}"
+        count = db.execute(count_sql, params).fetchone()[0]
+        return _ok({"publisher": publisher, "count": count})
+
+    sql = f"""
+        SELECT b.id, b.title, b.series, b.series_position,
+               b.publisher, b.published_date, b.page_count,
+               (SELECT a.name FROM book_authors ba
+                JOIN authors a ON a.id = ba.author_id
+                WHERE ba.book_id = b.id
+                ORDER BY ba.rowid LIMIT 1) AS author_name
+        FROM books b
+        WHERE {where}
+        ORDER BY b.published_date DESC NULLS LAST, b.title
+        LIMIT ? OFFSET ?
+    """
+    params += [limit, offset]
+    rows = db.execute(sql, params).fetchall()
 
     if not rows:
-        return _ok({"text": f"No books found from publisher \'{publisher}\'."})
+        return _ok({"text": f"No books found from publisher '{publisher}'."})
 
-    lines = [f"Books from {publisher} ({len(rows)} shown):\n"]
+    books = []
     for row in rows:
-        lines.append(_book_summary(row))
-    return _ok({"text": "\n".join(lines)})
+        books.append({
+            "id": row["id"], "title": row["title"],
+            "author": row["author_name"],
+            "series": row["series"], "series_position": row["series_position"],
+            "publisher": row["publisher"],
+            "publication_date": row["published_date"],
+            "page_count": row["page_count"],
+        })
+    return _ok({"publisher": publisher, "books": books, "count": len(books), "offset": offset})
 
 
 def booksdb_lookup_book_by_identifier(args: dict, **kwargs) -> str:

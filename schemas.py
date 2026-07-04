@@ -39,7 +39,16 @@ GET_BOOKS_BY_AUTHOR = {
             "limit": {"type": "integer", "description": _LIMIT_DESC},
             "offset": {"type": "integer", "description": _OFFSET_DESC},
         },
-        "required": ["author"],
+        
+            "first_only": {
+                "type": "boolean",
+                "description": "When true, only return book 1 of each series.",
+            },
+            "count_only": {
+                "type": "boolean",
+                "description": "When true, return only the count instead of the full list.",
+            },
+                        "required": ["author"],
     },
 }
 
@@ -53,7 +62,16 @@ GET_BOOKS_BY_SERIES = {
             "limit": {"type": "integer", "description": _LIMIT_DESC},
             "offset": {"type": "integer", "description": _OFFSET_DESC},
         },
-        "required": ["series"],
+        
+            "first_only": {
+                "type": "boolean",
+                "description": "When true, only return book 1 of each series.",
+            },
+            "count_only": {
+                "type": "boolean",
+                "description": "When true, return only the count instead of the full list.",
+            },
+                        "required": ["series"],
     },
 }
 
@@ -67,7 +85,16 @@ GET_BOOKS_BY_GENRE = {
             "limit": {"type": "integer", "description": _LIMIT_DESC},
             "offset": {"type": "integer", "description": _OFFSET_DESC},
         },
-        "required": ["genre"],
+        
+            "first_only": {
+                "type": "boolean",
+                "description": "When true, only return book 1 of each series.",
+            },
+            "count_only": {
+                "type": "boolean",
+                "description": "When true, return only the count instead of the full list.",
+            },
+                        "required": ["genre"],
     },
 }
 
@@ -81,7 +108,16 @@ GET_BOOKS_BY_PUBLISHER = {
             "limit": {"type": "integer", "description": _LIMIT_DESC},
             "offset": {"type": "integer", "description": _OFFSET_DESC},
         },
-        "required": ["publisher"],
+        
+            "first_only": {
+                "type": "boolean",
+                "description": "When true, only return book 1 of each series.",
+            },
+            "count_only": {
+                "type": "boolean",
+                "description": "When true, return only the count instead of the full list.",
+            },
+                        "required": ["publisher"],
     },
 }
 
