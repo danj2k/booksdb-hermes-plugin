@@ -54,7 +54,7 @@ def _db() -> sqlite3.Connection:
                 "BOOKSDB_DB_PATH is not set.  Configure the plugin via "
                 "hermes config set plugins.booksdb.env.BOOKSDB_DB_PATH /path/to/book_metadata.db"
             )
-        _db_conn = sqlite3.connect(path)
+        _db_conn = sqlite3.connect(path, check_same_thread=False)
         _db_conn.row_factory = sqlite3.Row
         _db_conn.execute("PRAGMA journal_mode=WAL")
         _db_conn.execute("PRAGMA foreign_keys=ON")

@@ -16,6 +16,21 @@ filesystem and copying bypasses this restriction.
 - FTS5 queries use `MATCH` with the raw user query string, letting
   SQLite handle tokenisation.
 
+## SQLite threading
+
+The database connection is created with `check_same_thread=False` because
+Hermes dispatches tool calls from a thread pool.  Without this flag,
+SQLite raises `ProgrammingError` when a query executes on a different
+thread than the one that opened the connection.
+
+This was discovered after deployment: the first tool call succeeded (same
+thread), but subsequent calls from other threads failed silently with the
+connection in a broken state.  The fix was applied to both the running
+plugin (`/opt/data/plugins/booksdb/tools.py`) and the source repo.
+
+The Goodreads plugin avoids this entirely by creating a fresh connection
+per call rather than sharing a module-level one.
+
 ## Pagination
 
 Every listing tool accepts optional `limit` (default 20, max 50) and

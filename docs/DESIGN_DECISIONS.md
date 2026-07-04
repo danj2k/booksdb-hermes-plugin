@@ -25,8 +25,11 @@ avoids the user needing to know exact strings.
 
 A single `sqlite3.Connection` created lazily and reused avoids the
 overhead of reconnecting on every tool call.  The connection is
-process-scoped, which is safe because Hermes runs each tool call
-in the same Python process.
+process-scoped and created with `check_same_thread=False` because
+Hermes dispatches tool calls from a thread pool — each call may
+run on a different thread than the one that created the connection.
+Without this flag, SQLite raises `ProgrammingError: SQLite objects
+created in a thread can only be used in that same thread`.
 
 ## JSON string returns
 
